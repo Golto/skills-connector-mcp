@@ -629,12 +629,14 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "mcp", extra = ["cli"] },
+    { name = "pydantic" },
     { name = "pyyaml" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "mcp", extras = ["cli"], specifier = ">=1.28.0" },
+    { name = "pydantic", specifier = ">=2.0" },
     { name = "pyyaml", specifier = ">=6.0.3" },
 ]
 
