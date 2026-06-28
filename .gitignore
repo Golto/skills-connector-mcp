@@ -11,3 +11,6 @@ wheels/
 
 # Private files
 .private/
+
+# Tests
+tests*
