@@ -2,7 +2,14 @@ import json
 from datetime import datetime, timezone
 
 from src.storage.exceptions import ProfileCorruptedError, RegistryCorruptedError
-from src.storage.paths import get_base_dir, get_data_root, get_generated_dir, get_profile_path, get_profiles_dir, get_registry_path
+from src.storage.paths import (
+    get_base_dir,
+    get_data_root,
+    get_generated_dir,
+    get_profile_path,
+    get_profiles_dir,
+    get_registry_path,
+)
 
 
 _DEFAULT_PROFILE_ID = "default"
@@ -19,7 +26,7 @@ def _build_empty_registry() -> dict:
 def _build_default_profile() -> dict:
     return {
         "name": "default",
-        "description": "Profil par defaut (genéré automatiquement)",
+        "description": "Profil par défaut (généré automatiquement)",
         "allow_generation": False,
         "allow_execution": False,
         "skill_ids": [],
@@ -67,7 +74,7 @@ def ensure_data_directories_exist() -> None:
     registry_path = get_registry_path()
     if not registry_path.exists():
         registry_path.write_text(
-            json.dumps(_build_empty_registry(), indent=4),
+            json.dumps(_build_empty_registry(), indent=2),
             encoding="utf-8",
         )
     else:
@@ -76,7 +83,7 @@ def ensure_data_directories_exist() -> None:
     default_profile_path = get_profile_path(_DEFAULT_PROFILE_ID)
     if not default_profile_path.exists():
         default_profile_path.write_text(
-            json.dumps(_build_default_profile(), indent=4),
+            json.dumps(_build_default_profile(), indent=2),
             encoding="utf-8",
         )
     else:
