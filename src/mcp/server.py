@@ -15,6 +15,7 @@ from src.mcp.tools.read_skill_resource.models import (
     ReadSkillResourceResponse,
 )
 from src.mcp.tools.read_skill_resource.tool import execute_read_skill_resource
+from src.mcp.tools.run_bash_command.image_builder import ensure_runner_image_available
 from src.mcp.tools.run_bash_command.models import RunBashCommandRequest, RunBashCommandResponse
 from src.mcp.tools.run_bash_command.tool import execute_run_bash_command
 from src.mcp.tools.search_skills.models import SearchSkillsRequest, SearchSkillsResponse
@@ -61,10 +62,12 @@ def resolve_profile_id() -> str:
 def build_server(profile_id: str) -> FastMCP:
     """Bootstrap, sync, and configure a FastMCP server for the given profile.
 
-    Runs three startup steps in order:
+    Runs these startup steps in order:
     1. Bootstrap: create any missing data directories and files.
     2. Registry sync: reconcile registry.json with base/ and generated/ on disk.
     3. Profile load: read the profile and build the in-memory ServerScope.
+    4. If allow_execution is set, make sure the runner image exists, building
+       it from the bundled Dockerfile if it is missing locally.
 
     Tools are registered based on the profile's flags. Tools not permitted by
     the profile are not registered at all (absent from the MCP manifest rather
@@ -80,6 +83,8 @@ def build_server(profile_id: str) -> FastMCP:
         ProfileNotFoundError: If the profile file does not exist.
         ProfileCorruptedError: If the profile file cannot be parsed.
         RegistryCorruptedError: If registry.json cannot be parsed.
+        DockerImageBuildError: If allow_execution is set and the runner image
+            is missing and fails to build.
     """
     # ----------------------------------------------------------------
     # Startup sequence
@@ -99,6 +104,9 @@ def build_server(profile_id: str) -> FastMCP:
         allow_generation=profile.allow_generation,
         allow_execution=profile.allow_execution,
     )
+
+    if profile.allow_execution:
+        ensure_runner_image_available()
 
     ctx = AppRequestContext(scope=scope, registry=registry)
     mcp = FastMCP("mcp-skills")
@@ -163,6 +171,25 @@ def build_server(profile_id: str) -> FastMCP:
     # ----------------------------------------------------------------
     # Conditional tools: allow_execution
     # ----------------------------------------------------------------
-    # NOTE: Not yet implemented
+
+    if profile.allow_execution:
+
+        @mcp.tool()
+        def run_bash_command(
+            request: RunBashCommandRequest,
+        ) -> RunBashCommandResponse:
+            """Run a shell command in a disposable Docker container scoped to one skill.
+
+            The skill directory is mounted read-only at /skill. The scratch
+            directory mounted read-write at /workspace is either freshly
+            created or reused from a previous call via scratch_id, so you can
+            iterate against the same /workspace across multiple calls instead
+            of starting from an empty directory each time. The response
+            always returns the scratch_id used, to pass back into a follow-up
+            call. The scratch directory is kept on disk after the call so
+            output files remain retrievable via workspace_path. Networking is
+            disabled inside the container.
+            """
+            return execute_run_bash_command(request, ctx)
 
     return mcp
