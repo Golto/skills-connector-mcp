@@ -8,6 +8,11 @@ class RunBashCommandRequest(BaseModel):
         skill_id: Identifier of the skill whose directory is mounted read-only
             at /skill inside the container.
         command: Shell command executed via 'bash -c' inside the container.
+            The skill's files are available read-only under /skill (e.g.
+            /skill/SKILL.md, /skill/scripts/setup.sh). The working directory
+            is /workspace, mounted read-write: relative paths in the command
+            resolve there, not under /skill. Always prefix skill file paths
+            with /skill/ explicitly, for example: 'python /skill/scripts/run.py'.
         timeout_seconds: Maximum wall-clock time allowed for the command before
             the container is killed.
         scratch_id: Optional id of an existing scratch directory to reuse,
@@ -39,6 +44,10 @@ class RunBashCommandResponse(BaseModel):
         scratch_id: Id of the scratch directory used for this call. Pass this
             back as scratch_id in a subsequent call to reuse the same
             /workspace instead of starting fresh.
+        sandbox_layout: ASCII tree of both mount points as they stand after
+            the command finished: the read-only /skill directory and the
+            read-write /workspace directory. Lets the agent see what was
+            produced without a separate list_skill_files or follow-up call.
     """
 
     stdout: str
@@ -47,3 +56,4 @@ class RunBashCommandResponse(BaseModel):
     output_files: list[str]
     workspace_path: str
     scratch_id: str
+    sandbox_layout: str

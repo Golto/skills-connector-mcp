@@ -5,6 +5,7 @@ from pathlib import Path
 from src.storage.exceptions import PathEscapeError
 from src.storage.models import Manifest, SkillOrigin
 from src.storage.paths import get_data_root, get_skill_dir
+from src.storage.tree import render_file_tree
 
 
 def resolve_skill_dir(path: str) -> Path:
@@ -54,6 +55,22 @@ def list_skill_files(skill_dir: Path) -> list[str]:
         for path in skill_dir.rglob("*")
         if path.is_file() and path.name != "manifest.json"
     )
+
+
+def build_skill_tree(skill_dir: Path) -> str:
+    """Render a skill directory as an ASCII tree, rooted at '/skill'.
+
+    Uses '/skill' as the label rather than the skill_dir host path, since
+    this tree is meant to help an agent orient itself inside the sandbox
+    mount created by run_bash_command, not on the host filesystem.
+
+    Args:
+        skill_dir: Absolute path to the skill's root directory.
+
+    Returns:
+        A multi-line ASCII tree string, manifest.json excluded.
+    """
+    return render_file_tree("/skill", list_skill_files(skill_dir))
 
 
 def resolve_resource_path(skill_dir: Path, relative_path: str) -> Path:

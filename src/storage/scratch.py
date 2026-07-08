@@ -4,6 +4,7 @@ from pathlib import Path
 
 from src.storage.exceptions import PathEscapeError
 from src.storage.paths import get_data_root
+from src.storage.tree import render_file_tree
 
 
 _SCRATCH_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
@@ -79,3 +80,19 @@ def list_scratch_files(scratch_dir: Path) -> list[str]:
         for path in scratch_dir.rglob("*")
         if path.is_file()
     )
+
+
+def build_scratch_tree(scratch_dir: Path) -> str:
+    """Render a scratch directory as an ASCII tree, rooted at '/workspace'.
+
+    Uses '/workspace' as the label rather than the scratch_dir host path,
+    matching the mount point an agent sees inside the run_bash_command
+    sandbox rather than the host filesystem layout.
+
+    Args:
+        scratch_dir: Absolute path to the scratch directory.
+
+    Returns:
+        A multi-line ASCII tree string reflecting the directory's current state.
+    """
+    return render_file_tree("/workspace", list_scratch_files(scratch_dir))

@@ -2,8 +2,13 @@ from src.mcp.context import AppRequestContext
 from src.mcp.tools.run_bash_command.docker_runner import run_docker_container
 from src.mcp.tools.run_bash_command.models import RunBashCommandRequest, RunBashCommandResponse
 from src.mcp.tools.scope_guard import require_skill_in_scope
-from src.storage.scratch import generate_scratch_id, list_scratch_files, resolve_scratch_dir
-from src.storage.skill_store import resolve_skill_dir
+from src.storage.scratch import (
+    build_scratch_tree,
+    generate_scratch_id,
+    list_scratch_files,
+    resolve_scratch_dir,
+)
+from src.storage.skill_store import build_skill_tree, resolve_skill_dir
 
 
 def execute_run_bash_command(
@@ -28,7 +33,8 @@ def execute_run_bash_command(
     Returns:
         A RunBashCommandResponse with stdout, stderr, exit_code, the list of
         files found in the scratch directory after execution, its absolute
-        host path, and the scratch_id to reuse in a follow-up call.
+        host path, the scratch_id to reuse in a follow-up call, and an ASCII
+        tree of both /skill and /workspace as they stand after the command ran.
 
     Raises:
         SkillNotFoundError: If skill_id is not in the current scope or registry.
@@ -50,6 +56,8 @@ def execute_run_bash_command(
         timeout_seconds=request.timeout_seconds,
     )
 
+    sandbox_layout = f"{build_skill_tree(skill_dir)}\n\n{build_scratch_tree(scratch_dir)}"
+
     return RunBashCommandResponse(
         stdout=result.stdout,
         stderr=result.stderr,
@@ -57,4 +65,5 @@ def execute_run_bash_command(
         output_files=list_scratch_files(scratch_dir),
         workspace_path=str(scratch_dir),
         scratch_id=scratch_id,
+        sandbox_layout=sandbox_layout,
     )

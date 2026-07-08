@@ -180,15 +180,23 @@ def build_server(profile_id: str) -> FastMCP:
         ) -> RunBashCommandResponse:
             """Run a shell command in a disposable Docker container scoped to one skill.
 
-            The skill directory is mounted read-only at /skill. The scratch
-            directory mounted read-write at /workspace is either freshly
+            Mount layout inside the container (specific to this sandbox, not
+            part of the skill itself):
+            - /skill (read-only): the skill's own files, e.g. /skill/SKILL.md,
+              /skill/scripts/setup.sh. Always prefix skill file paths with
+              /skill/ explicitly in your command.
+            - /workspace (read-write): your working directory. Relative paths
+              in the command resolve here.
+
+            The scratch directory backing /workspace is either freshly
             created or reused from a previous call via scratch_id, so you can
-            iterate against the same /workspace across multiple calls instead
-            of starting from an empty directory each time. The response
-            always returns the scratch_id used, to pass back into a follow-up
-            call. The scratch directory is kept on disk after the call so
-            output files remain retrievable via workspace_path. Networking is
-            disabled inside the container.
+            iterate across multiple calls instead of starting from an empty
+            directory each time. The response always returns the scratch_id
+            used, to pass back into a follow-up call, along with a
+            sandbox_layout showing both /skill and /workspace as they stand
+            after the command ran. The scratch directory is kept on disk
+            after the call so output files remain retrievable via
+            workspace_path. Networking is disabled inside the container.
             """
             return execute_run_bash_command(request, ctx)
 
