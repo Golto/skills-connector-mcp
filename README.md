@@ -20,6 +20,7 @@ Le serveur distingue deux catégories de skills :
 - [Profils](#profils)
 - [Lancement du serveur](#lancement-du-serveur)
 - [Outils MCP exposés](#outils-mcp-exposés)
+- [Ressource `skills://index`](#ressource-skillsindex)
 - [Structure d'une skill](#structure-dune-skill)
 - [Exécution sandboxée](#exécution-sandboxée)
 - [Architecture du code](#architecture-du-code)
@@ -165,6 +166,12 @@ erreurs de démarrage pour garantir leur visibilité dans le terminal).
 Un outil non autorisé par le profil n'est **pas enregistré** sur le serveur
 (absence pure dans le manifeste MCP), pas un refus applicatif à l'appel.
 
+Les arguments de chaque outil sont **plats** (`{"skill_id": "..."}`) et non
+encapsulés dans un objet `request` : cette imbrication était une source
+fréquente d'appels d'outils malformés avec les petits modèles locaux. Chaque
+paramètre porte sa description et ses contraintes dans le schéma JSON de
+l'outil.
+
 ### Toujours chargés
 
 | Outil | Description |
@@ -187,6 +194,32 @@ Non implémentés pour le moment. `create_skill` et `set_profile_skills` sont
 prévus par la spécification mais n'ont pas encore de code associé : le
 branchement conditionnel existe déjà dans `server.py` (commenté), en
 attente de leur implémentation.
+
+## Ressource `skills://index`
+
+En plus des outils, le serveur expose une ressource MCP `skills://index`
+(`text/markdown`) : un index compact des skills du scope courant, une ligne
+par skill (id, description, triggers, marqueur `[files]` si la skill a des
+fichiers annexes), précédé de consignes d'usage.
+
+Elle est destinée à être **injectée dans le prompt système** de l'agent par
+le client MCP. Le modèle sait ainsi d'emblée quelles skills existent, sans
+devoir penser à appeler `list_skills` : il ne lit le `SKILL.md` complet via
+`read_skill` que lorsqu'une tâche s'y rapporte (divulgation progressive).
+
+Les consignes ne mentionnent que les outils réellement enregistrés pour le
+profil actif : la phrase sur `run_bash_command` n'apparaît que si
+`allow_execution` est actif, celle sur `list_skill_files` /
+`read_skill_resource` que si au moins une skill a des fichiers annexes.
+
+```markdown
+# Available skills
+
+Skills are packaged instructions for specific kinds of tasks. [...]
+
+- golto-python-style: Conventions de style Python. Use when: écrire du code Python.
+- fiche-recap-math: Génère une fiche récap de maths. [files]
+```
 
 ## Structure d'une skill
 
@@ -296,9 +329,11 @@ src/
     ├── context.py                   # AppRequestContext (scope + registry) injecté dans chaque outil
     ├── server.py                    # resolve_profile_id() + build_server(): bootstrap, sync, enregistrement des outils
     ├── prompts/                     # vide pour le moment
-    ├── resources/                   # vide pour le moment
+    ├── resources/
+    │   └── skills_index/
+    │       └── resource.py          # build_skills_index() : index Markdown du scope pour le prompt système
     └── tools/
-        ├── shared_models.py         # SkillSummary partagé entre list_skills et search_skills
+        ├── shared_models.py         # SkillSummary + SkillIdParameter partagés entre outils
         ├── scope_guard.py           # require_skill_in_scope() partagé entre les outils prenant un skill_id
         ├── list_skills/
         ├── search_skills/
@@ -314,11 +349,15 @@ src/
 ```
 
 Chaque outil MCP suit la même convention : `tools/<nom_outil>/models.py`
-(Pydantic request/response) et `tools/<nom_outil>/tool.py`
-(`execute_<nom_outil>(request, ctx) -> Response`). Les fonctions outils
-sont enregistrées dans `server.py` via des wrappers `@mcp.tool()` fins qui
-délèguent immédiatement à la fonction `execute_*` correspondante, cette
-séparation permettant de tester la logique métier indépendamment du
+(Pydantic request/response, plus les alias `Annotated` de ses paramètres) et
+`tools/<nom_outil>/tool.py` (`execute_<nom_outil>(request, ctx) -> Response`).
+Les fonctions outils sont enregistrées dans `server.py` via des wrappers
+`@mcp.tool()` fins, à arguments plats, qui reconstruisent le modèle de
+requête puis délèguent immédiatement à la fonction `execute_*`
+correspondante. Les alias `Annotated` (par exemple `SkillIdParameter`) sont
+partagés entre les modèles de requête et les signatures des wrappers : la
+description et les contraintes d'un paramètre ne sont écrites qu'une fois.
+Cette séparation permet de tester la logique métier indépendamment du
 décodage FastMCP.
 
 ### `main.py` / `server.py`

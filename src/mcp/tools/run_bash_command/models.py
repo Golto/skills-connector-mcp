@@ -1,4 +1,40 @@
+from typing import Annotated
+
 from pydantic import BaseModel, Field
+
+from src.mcp.tools.shared_models import SkillIdParameter
+
+
+DEFAULT_TIMEOUT_SECONDS = 30
+
+
+CommandParameter = Annotated[
+    str,
+    Field(
+        min_length=1,
+        description=(
+            "Shell command run with 'bash -c'. The working directory is /workspace "
+            "(read-write), so relative paths resolve there. The skill's files are "
+            "read-only under /skill: always prefix them explicitly, for example "
+            "'python /skill/scripts/run.py'."
+        ),
+    ),
+]
+
+TimeoutSecondsParameter = Annotated[
+    int,
+    Field(gt=0, description="Seconds before the container is killed (exit code 124)."),
+]
+
+ScratchIdParameter = Annotated[
+    str | None,
+    Field(
+        description=(
+            "scratch_id returned by a previous run_bash_command call, to keep "
+            "working in the same /workspace. Omit to start from an empty one."
+        ),
+    ),
+]
 
 
 class RunBashCommandRequest(BaseModel):
@@ -22,10 +58,10 @@ class RunBashCommandRequest(BaseModel):
             scratch directory is created and its id is returned in the response.
     """
 
-    skill_id: str
-    command: str
-    timeout_seconds: int = Field(default=30, gt=0)
-    scratch_id: str | None = None
+    skill_id: SkillIdParameter
+    command: CommandParameter
+    timeout_seconds: TimeoutSecondsParameter = DEFAULT_TIMEOUT_SECONDS
+    scratch_id: ScratchIdParameter = None
 
 
 class RunBashCommandResponse(BaseModel):

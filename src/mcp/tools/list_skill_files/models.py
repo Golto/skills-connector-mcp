@@ -1,5 +1,7 @@
 from pydantic import BaseModel
 
+from src.mcp.tools.shared_models import SkillIdParameter
+
 
 class ListSkillFilesRequest(BaseModel):
     """Input for the list_skill_files tool.
@@ -8,7 +10,7 @@ class ListSkillFilesRequest(BaseModel):
         skill_id: Identifier of the skill whose file tree should be returned.
     """
 
-    skill_id: str
+    skill_id: SkillIdParameter
 
 
 class ListSkillFilesResponse(BaseModel):

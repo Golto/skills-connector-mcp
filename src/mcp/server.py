@@ -4,6 +4,7 @@ from argparse import ArgumentParser
 from mcp.server.fastmcp import FastMCP
 
 from src.mcp.context import AppRequestContext
+from src.mcp.resources.skills_index.resource import SKILLS_INDEX_URI, build_skills_index
 from src.mcp.tools.list_skill_files.models import ListSkillFilesRequest, ListSkillFilesResponse
 from src.mcp.tools.list_skill_files.tool import execute_list_skill_files
 from src.mcp.tools.list_skills.models import ListSkillsResponse
@@ -13,13 +14,27 @@ from src.mcp.tools.read_skill.tool import execute_read_skill
 from src.mcp.tools.read_skill_resource.models import (
     ReadSkillResourceRequest,
     ReadSkillResourceResponse,
+    RelativePathParameter,
 )
 from src.mcp.tools.read_skill_resource.tool import execute_read_skill_resource
 from src.mcp.tools.run_bash_command.image_builder import ensure_runner_image_available
-from src.mcp.tools.run_bash_command.models import RunBashCommandRequest, RunBashCommandResponse
+from src.mcp.tools.run_bash_command.models import (
+    DEFAULT_TIMEOUT_SECONDS,
+    CommandParameter,
+    RunBashCommandRequest,
+    RunBashCommandResponse,
+    ScratchIdParameter,
+    TimeoutSecondsParameter,
+)
 from src.mcp.tools.run_bash_command.tool import execute_run_bash_command
-from src.mcp.tools.search_skills.models import SearchSkillsRequest, SearchSkillsResponse
+from src.mcp.tools.search_skills.models import (
+    LimitParameter,
+    QueryParameter,
+    SearchSkillsRequest,
+    SearchSkillsResponse,
+)
 from src.mcp.tools.search_skills.tool import execute_search_skills
+from src.mcp.tools.shared_models import SkillIdParameter
 from src.storage.bootstrap import ensure_data_directories_exist
 from src.storage.models import ServerScope
 from src.storage.profile_store import read_profile
@@ -73,6 +88,15 @@ def build_server(profile_id: str) -> FastMCP:
     the profile are not registered at all (absent from the MCP manifest rather
     than refusing at call time).
 
+    Tool parameters are declared flat in each wrapper signature, not wrapped
+    in a single request object: a nested {"request": {...}} argument is a
+    frequent source of malformed tool calls with small local models. The
+    wrappers rebuild the request models before delegating, so validation and
+    the execute_* contracts are unchanged.
+
+    The skills index is also exposed as the resource skills://index, meant
+    to be injected into an agent's system prompt by the MCP client.
+
     Args:
         profile_id: The profile identifier to load.
 
@@ -112,6 +136,22 @@ def build_server(profile_id: str) -> FastMCP:
     mcp = FastMCP("mcp-skills")
 
     # ----------------------------------------------------------------
+    # Resources
+    # ----------------------------------------------------------------
+
+    @mcp.resource(
+        SKILLS_INDEX_URI,
+        name="skills_index",
+        description=(
+            "One-line summary of every skill in the current scope, with usage "
+            "hints. Meant to be injected into the agent's system prompt."
+        ),
+        mime_type="text/markdown",
+    )
+    def skills_index() -> str:
+        return build_skills_index(ctx)
+
+    # ----------------------------------------------------------------
     # Always-loaded tools
     # ----------------------------------------------------------------
 
@@ -125,41 +165,46 @@ def build_server(profile_id: str) -> FastMCP:
         return execute_list_skills(ctx)
 
     @mcp.tool()
-    def search_skills(request: SearchSkillsRequest) -> SearchSkillsResponse:
-        """Search for skills by keywords, triggers, or tags within the current scope.
+    def search_skills(
+        query: QueryParameter,
+        limit: LimitParameter = None,
+    ) -> SearchSkillsResponse:
+        """Search for skills by keywords within the current scope.
 
         All query words must appear somewhere in a skill's id, description,
-        triggers, or tags for it to be returned (AND semantics). Results can
-        be capped with the optional limit field.
+        triggers, or tags for it to be returned (AND semantics).
         """
-        return execute_search_skills(request, ctx)
+        return execute_search_skills(SearchSkillsRequest(query=query, limit=limit), ctx)
 
     @mcp.tool()
-    def read_skill(request: ReadSkillRequest) -> ReadSkillResponse:
-        """Return the full content of a skill's SKILL.md.
+    def read_skill(skill_id: SkillIdParameter) -> ReadSkillResponse:
+        """Return the full instructions (SKILL.md) of a skill.
 
-        Raises an error if the skill_id is not in the current scope.
+        Call this before starting a task the skill applies to, then follow
+        the returned instructions.
         """
-        return execute_read_skill(request, ctx)
+        return execute_read_skill(ReadSkillRequest(skill_id=skill_id), ctx)
 
     @mcp.tool()
-    def list_skill_files(request: ListSkillFilesRequest) -> ListSkillFilesResponse:
-        """Return the sorted file tree of a skill directory, excluding manifest.json.
+    def list_skill_files(skill_id: SkillIdParameter) -> ListSkillFilesResponse:
+        """Return the sorted file tree of a skill directory.
 
-        Use this before read_skill_resource to discover available relative paths,
+        Use this before read_skill_resource to discover valid relative paths,
         since a skill's internal structure is not fixed.
         """
-        return execute_list_skill_files(request, ctx)
+        return execute_list_skill_files(ListSkillFilesRequest(skill_id=skill_id), ctx)
 
     @mcp.tool()
     def read_skill_resource(
-        request: ReadSkillResourceRequest,
+        skill_id: SkillIdParameter,
+        relative_path: RelativePathParameter,
     ) -> ReadSkillResourceResponse:
         """Return the content of a specific file from a skill directory.
 
         Use list_skill_files first to discover valid relative paths.
         SKILL.md must be read via read_skill, not this tool.
         """
+        request = ReadSkillResourceRequest(skill_id=skill_id, relative_path=relative_path)
         return execute_read_skill_resource(request, ctx)
 
     # ----------------------------------------------------------------
@@ -176,28 +221,25 @@ def build_server(profile_id: str) -> FastMCP:
 
         @mcp.tool()
         def run_bash_command(
-            request: RunBashCommandRequest,
+            skill_id: SkillIdParameter,
+            command: CommandParameter,
+            timeout_seconds: TimeoutSecondsParameter = DEFAULT_TIMEOUT_SECONDS,
+            scratch_id: ScratchIdParameter = None,
         ) -> RunBashCommandResponse:
             """Run a shell command in a disposable Docker container scoped to one skill.
 
-            Mount layout inside the container (specific to this sandbox, not
-            part of the skill itself):
-            - /skill (read-only): the skill's own files, e.g. /skill/SKILL.md,
-              /skill/scripts/setup.sh. Always prefix skill file paths with
-              /skill/ explicitly in your command.
-            - /workspace (read-write): your working directory. Relative paths
-              in the command resolve here.
-
-            The scratch directory backing /workspace is either freshly
-            created or reused from a previous call via scratch_id, so you can
-            iterate across multiple calls instead of starting from an empty
-            directory each time. The response always returns the scratch_id
-            used, to pass back into a follow-up call, along with a
-            sandbox_layout showing both /skill and /workspace as they stand
-            after the command ran. The scratch directory is kept on disk
-            after the call so output files remain retrievable via
-            workspace_path. Networking is disabled inside the container.
+            The skill's files are mounted read-only at /skill and the working
+            directory /workspace is read-write. Networking is disabled. The
+            response returns a scratch_id to pass back in a follow-up call to
+            keep iterating in the same /workspace, and a sandbox_layout showing
+            both mounts as they stand after the command ran.
             """
+            request = RunBashCommandRequest(
+                skill_id=skill_id,
+                command=command,
+                timeout_seconds=timeout_seconds,
+                scratch_id=scratch_id,
+            )
             return execute_run_bash_command(request, ctx)
 
     return mcp

@@ -1,5 +1,7 @@
 from pydantic import BaseModel
 
+from src.mcp.tools.shared_models import SkillIdParameter
+
 
 class ReadSkillRequest(BaseModel):
     """Input for the read_skill tool.
@@ -8,7 +10,7 @@ class ReadSkillRequest(BaseModel):
         skill_id: Identifier of the skill whose SKILL.md should be returned.
     """
 
-    skill_id: str
+    skill_id: SkillIdParameter
 
 
 class ReadSkillResponse(BaseModel):
