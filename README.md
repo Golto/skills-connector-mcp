@@ -127,11 +127,19 @@ Le profil actif est résolu dans cet ordre de précédence :
 MCP_SKILLS_PROFILE=dev uv run mcp run main.py
 ```
 
-Pour le développement, l'inspecteur MCP :
+Pour le développement, l'inspecteur MCP. `uv run mcp dev main.py` ne
+convient pas ici : l'inspecteur relance le serveur dans un sous-processus
+sans lui transmettre les variables d'environnement (seulement `PATH`,
+`HOME`, etc.), si bien que le profil `default` serait chargé en silence.
+Lancer l'inspecteur directement, en lui passant les variables avec `-e` :
 
 ```bash
-MCP_SKILLS_PROFILE=dev uv run mcp dev main.py
+npx @modelcontextprotocol/inspector -e MCP_SKILLS_PROFILE=dev uv run mcp run main.py
 ```
+
+Au démarrage, le serveur écrit sur stderr le profil et le workspace
+réellement chargés, ce qui permet de vérifier la configuration d'un coup
+d'œil (panneau de notifications de l'inspecteur).
 
 Si `MCP_SKILLS_PROFILE` pointe vers un profil inexistant, une erreur
 explicite est écrite sur stderr avant d'être relevée (l'inspecteur MCP

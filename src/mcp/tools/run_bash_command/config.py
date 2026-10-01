@@ -5,6 +5,9 @@ from pathlib import Path
 _DEFAULT_IMAGE = "mcp-skills-runner:latest"
 _DEFAULT_MEMORY_LIMIT = "512m"
 _DEFAULT_CPU_LIMIT = "1.0"
+_DEFAULT_PIDS_LIMIT = "256"
+_DEFAULT_TMP_SIZE = "256m"
+_DEFAULT_OUTPUT_LIMIT_BYTES = 8000
 _DEFAULT_CONTAINER_KILL_TIMEOUT_SECONDS = 10
 _DEFAULT_IMAGE_BUILD_TIMEOUT_SECONDS = 300
 
@@ -25,9 +28,10 @@ def get_docker_image() -> str:
 def get_docker_memory_limit() -> str:
     """Return the memory limit applied to every run_bash_command container.
 
-    Fixed at the server level, not exposed to the agent. Overridable via the
-    MCP_SKILLS_DOCKER_MEMORY environment variable (Docker memory syntax,
-    e.g. '512m', '1g').
+    Also used as the memory+swap limit, so the container cannot spill into
+    swap. Fixed at the server level, not exposed to the agent. Overridable
+    via the MCP_SKILLS_DOCKER_MEMORY environment variable (Docker memory
+    syntax, e.g. '512m', '1g').
 
     Returns:
         The memory limit string to pass to 'docker run --memory'.
@@ -46,6 +50,49 @@ def get_docker_cpu_limit() -> str:
         The CPU limit string to pass to 'docker run --cpus'.
     """
     return os.environ.get("MCP_SKILLS_DOCKER_CPUS", _DEFAULT_CPU_LIMIT)
+
+
+def get_docker_pids_limit() -> str:
+    """Return the maximum number of processes inside one container.
+
+    Guards against fork bombs and runaway process spawning. Overridable via
+    the MCP_SKILLS_DOCKER_PIDS environment variable.
+
+    Returns:
+        The limit string to pass to 'docker run --pids-limit'.
+    """
+    return os.environ.get("MCP_SKILLS_DOCKER_PIDS", _DEFAULT_PIDS_LIMIT)
+
+
+def get_docker_tmp_size() -> str:
+    """Return the size of the in-memory /tmp of every container.
+
+    The container root filesystem is read-only, so /tmp is the only scratch
+    space outside /workspace. It counts against the memory limit. Overridable
+    via the MCP_SKILLS_DOCKER_TMP_SIZE environment variable (e.g. '256m').
+
+    Returns:
+        The size string used in the '--tmpfs /tmp' options.
+    """
+    return os.environ.get("MCP_SKILLS_DOCKER_TMP_SIZE", _DEFAULT_TMP_SIZE)
+
+
+def get_output_limit_bytes() -> int:
+    """Return how many bytes of stdout, and as many of stderr, are returned.
+
+    Anything beyond is cut from the middle of the stream (see
+    BoundedOutputBuffer). Kept small by default because the output goes
+    straight into the agent's context. Overridable via the
+    MCP_SKILLS_OUTPUT_LIMIT_BYTES environment variable.
+
+    Returns:
+        The limit in bytes, per stream.
+
+    Raises:
+        ValueError: If the environment variable is not an integer.
+    """
+    raw_value = os.environ.get("MCP_SKILLS_OUTPUT_LIMIT_BYTES")
+    return int(raw_value) if raw_value else _DEFAULT_OUTPUT_LIMIT_BYTES
 
 
 def get_container_kill_timeout_seconds() -> int:

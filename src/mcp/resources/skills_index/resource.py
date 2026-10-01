@@ -20,7 +20,7 @@ _RESOURCES_HINT = (
 
 _EXECUTION_HINT = (
     "Scripts shipped by a skill can be run with run_bash_command, in a sandbox "
-    "where the skill's files are mounted read-only under /skill."
+    "where every skill is mounted read-only under /skills/<skill_id>/."
 )
 
 _EMPTY_SCOPE_MESSAGE = "No skills are available in the current scope."

@@ -1,69 +1,50 @@
 from src.mcp.context import AppRequestContext
 from src.mcp.tools.run_bash_command.docker_runner import run_docker_container
 from src.mcp.tools.run_bash_command.models import RunBashCommandRequest, RunBashCommandResponse
-from src.mcp.tools.scope_guard import require_skill_in_scope
-from src.storage.scratch import (
-    build_scratch_tree,
-    generate_scratch_id,
-    list_scratch_files,
-    resolve_scratch_dir,
-)
-from src.storage.skill_store import build_skill_tree, resolve_skill_dir
+from src.mcp.tools.run_bash_command.sandbox_mounts import build_sandbox_mounts
+from src.storage.workspace import SANDBOX_WORKSPACE_ROOT
 
 
-def execute_run_bash_command(
+async def execute_run_bash_command(
     request: RunBashCommandRequest,
     ctx: AppRequestContext,
 ) -> RunBashCommandResponse:
-    """Run a shell command in a disposable Docker container scoped to one skill.
+    """Run a shell command in a disposable sandbox holding the skills and the workspace.
 
-    The skill's root directory is mounted read-only at /skill so the command
-    can never modify the skill it belongs to during execution. The scratch
-    directory mounted read-write at /workspace is either freshly created or
-    reused from a previous call, depending on request.scratch_id, so an agent
-    can iterate against the same /workspace across multiple calls. The
-    scratch directory is kept on disk after the call returns, so the agent
-    can retrieve any output files via workspace_path.
+    Every skill of the scope is mounted read-only under /skills, and the
+    workspace read-write under /workspace, which is also the working
+    directory. The workspace is made of host directories, so whatever the
+    command writes there persists after the container is gone and is visible
+    to the host (and to any other tool working on the same directories)
+    without any id to carry between calls.
 
     Args:
-        request: Contains skill_id, the command to run, a timeout, and an
-            optional scratch_id to reuse an existing workspace.
-        ctx: The active request context carrying scope and registry.
+        request: Contains the command to run and its timeout.
+        ctx: The active request context carrying scope, registry and workspace.
 
     Returns:
-        A RunBashCommandResponse with stdout, stderr, exit_code, the list of
-        files found in the scratch directory after execution, its absolute
-        host path, the scratch_id to reuse in a follow-up call, and an ASCII
-        tree of both /skill and /workspace as they stand after the command ran.
+        A RunBashCommandResponse with the exit code and the bounded output.
 
     Raises:
-        SkillNotFoundError: If skill_id is not in the current scope or registry.
-        PathEscapeError: If request.scratch_id contains invalid characters.
         FileNotFoundError: If the 'docker' binary is not available on the host.
     """
-    require_skill_in_scope(request.skill_id, ctx)
-
-    entry = ctx.registry.skills[request.skill_id]
-    skill_dir = resolve_skill_dir(entry.path)
-
-    scratch_id = request.scratch_id or generate_scratch_id()
-    scratch_dir = resolve_scratch_dir(scratch_id)
-
-    result = run_docker_container(
-        skill_dir=skill_dir,
-        scratch_dir=scratch_dir,
+    result = await run_docker_container(
+        mounts=build_sandbox_mounts(ctx),
+        working_dir=SANDBOX_WORKSPACE_ROOT,
         command=request.command,
         timeout_seconds=request.timeout_seconds,
     )
 
-    sandbox_layout = f"{build_skill_tree(skill_dir)}\n\n{build_scratch_tree(scratch_dir)}"
+    stderr = result.stderr.text
+    if result.timed_out:
+        stderr += (
+            f"\nCommand killed after {request.timeout_seconds} seconds. "
+            "Files it wrote to /workspace before that are kept."
+        )
 
     return RunBashCommandResponse(
-        stdout=result.stdout,
-        stderr=result.stderr,
         exit_code=result.exit_code,
-        output_files=list_scratch_files(scratch_dir),
-        workspace_path=str(scratch_dir),
-        scratch_id=scratch_id,
-        sandbox_layout=sandbox_layout,
+        stdout=result.stdout.text,
+        stderr=stderr,
+        is_output_truncated=result.stdout.is_truncated or result.stderr.is_truncated,
     )

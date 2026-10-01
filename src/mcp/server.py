@@ -1,3 +1,5 @@
+import sys
+
 from mcp.server.fastmcp import FastMCP
 
 from src.mcp.context import AppRequestContext
@@ -21,7 +23,6 @@ from src.mcp.tools.run_bash_command.models import (
     CommandParameter,
     RunBashCommandRequest,
     RunBashCommandResponse,
-    ScratchIdParameter,
     TimeoutSecondsParameter,
 )
 from src.mcp.tools.run_bash_command.tool import execute_run_bash_command
@@ -41,7 +42,7 @@ from src.storage.registry_store import (
     sync_skills_to_registry,
     write_registry,
 )
-from src.storage.workspace import resolve_workspace_layout
+from src.storage.workspace import WorkspaceLayout, resolve_workspace_layout
 
 
 def build_server(options: LaunchOptions) -> FastMCP:
@@ -112,6 +113,7 @@ def build_server(options: LaunchOptions) -> FastMCP:
         ensure_runner_image_available()
 
     ctx = AppRequestContext(scope=scope, registry=registry, workspace=workspace)
+    _report_startup_state(ctx.scope, workspace)
     mcp = FastMCP("mcp-skills")
 
     # ----------------------------------------------------------------
@@ -199,26 +201,42 @@ def build_server(options: LaunchOptions) -> FastMCP:
     if profile.allow_execution:
 
         @mcp.tool()
-        def run_bash_command(
-            skill_id: SkillIdParameter,
+        async def run_bash_command(
             command: CommandParameter,
             timeout_seconds: TimeoutSecondsParameter = DEFAULT_TIMEOUT_SECONDS,
-            scratch_id: ScratchIdParameter = None,
         ) -> RunBashCommandResponse:
-            """Run a shell command in a disposable Docker container scoped to one skill.
+            """Run a shell command in an offline sandbox.
 
-            The skill's files are mounted read-only at /skill and the working
-            directory /workspace is read-write. Networking is disabled. The
-            response returns a scratch_id to pass back in a follow-up call to
-            keep iterating in the same /workspace, and a sandbox_layout showing
-            both mounts as they stand after the command ran.
+            Skills are read-only under /skills/<skill_id>/. The working
+            directory /workspace is read-write: files written there are kept
+            between calls. Long output is cut in the middle.
             """
             request = RunBashCommandRequest(
-                skill_id=skill_id,
                 command=command,
                 timeout_seconds=timeout_seconds,
-                scratch_id=scratch_id,
             )
-            return execute_run_bash_command(request, ctx)
+            return await execute_run_bash_command(request, ctx)
 
     return mcp
+
+
+def _report_startup_state(scope: ServerScope, workspace: WorkspaceLayout) -> None:
+    """Print the profile and workspace actually loaded to stderr.
+
+    Launchers do not always forward environment variables (the MCP inspector
+    started by 'mcp dev' drops them), which silently falls back to the
+    default profile. Printing what was really loaded makes that visible at
+    once. stderr is safe with the stdio transport, which only uses stdout.
+
+    Args:
+        scope: The scope built from the loaded profile.
+        workspace: The resolved workspace layout.
+    """
+    print(
+        f"mcp-skills: profile '{scope.profile_id}', {len(scope.skill_ids)} skill(s), "
+        f"execution {'on' if scope.allow_execution else 'off'}, "
+        f"workspace from {workspace.source.value}",
+        file=sys.stderr,
+    )
+    for mount in workspace.mounts:
+        print(f"mcp-skills:   {mount.sandbox_path} -> {mount.host_path}", file=sys.stderr)

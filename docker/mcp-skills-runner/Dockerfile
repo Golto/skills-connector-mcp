@@ -17,4 +17,9 @@ RUN pip install --no-cache-dir \
     pyyaml \
     sympy
 
+# NOTE: mount points of the sandbox. The container runs with a read-only
+# root filesystem, so they are created here rather than at run time:
+# /skills/<skill_id> (read-only) and /workspace (read-write, working dir).
+RUN mkdir -p /skills /workspace
+
 WORKDIR /workspace

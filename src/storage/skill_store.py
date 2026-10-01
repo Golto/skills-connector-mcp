@@ -1,11 +1,16 @@
 import json
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from src.storage.exceptions import PathEscapeError
 from src.storage.models import Manifest, SkillOrigin
 from src.storage.paths import get_data_root, get_skill_dir
 from src.storage.tree import render_file_tree
+
+
+# NOTE: every skill in scope is mounted read-only at SANDBOX_SKILLS_ROOT /
+# <skill_id> inside the run_bash_command sandbox.
+SANDBOX_SKILLS_ROOT = PurePosixPath("/skills")
 
 
 def resolve_skill_dir(path: str) -> Path:
