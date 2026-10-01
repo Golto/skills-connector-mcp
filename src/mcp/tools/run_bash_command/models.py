@@ -54,9 +54,16 @@ class RunBashCommandResponse(BaseModel):
         stderr: Standard error of the command.
         is_output_truncated: True if stdout or stderr was too long and had its
             middle replaced by a '[... N bytes truncated ...]' marker.
+        changed_files: Files under /workspace created or modified while the
+            command ran, as sandbox paths. None if the workspace holds too
+            many files to track.
+        deleted_files: Files under /workspace deleted while the command ran.
+            None in the same case as changed_files.
     """
 
     exit_code: int
     stdout: str
     stderr: str
     is_output_truncated: bool
+    changed_files: list[str] | None
+    deleted_files: list[str] | None

@@ -209,7 +209,8 @@ def build_server(options: LaunchOptions) -> FastMCP:
 
             Skills are read-only under /skills/<skill_id>/. The working
             directory /workspace is read-write: files written there are kept
-            between calls. Long output is cut in the middle.
+            between calls, and the response lists those the command created,
+            modified or deleted. Long output is cut in the middle.
             """
             request = RunBashCommandRequest(
                 command=command,

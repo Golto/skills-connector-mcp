@@ -8,6 +8,8 @@ _DEFAULT_CPU_LIMIT = "1.0"
 _DEFAULT_PIDS_LIMIT = "256"
 _DEFAULT_TMP_SIZE = "256m"
 _DEFAULT_OUTPUT_LIMIT_BYTES = 8000
+_DEFAULT_SNAPSHOT_MAX_FILES = 20000
+_DEFAULT_CHANGED_FILES_MAX_ENTRIES = 50
 _DEFAULT_CONTAINER_KILL_TIMEOUT_SECONDS = 10
 _DEFAULT_IMAGE_BUILD_TIMEOUT_SECONDS = 300
 
@@ -93,6 +95,34 @@ def get_output_limit_bytes() -> int:
     """
     raw_value = os.environ.get("MCP_SKILLS_OUTPUT_LIMIT_BYTES")
     return int(raw_value) if raw_value else _DEFAULT_OUTPUT_LIMIT_BYTES
+
+
+def get_snapshot_max_files() -> int:
+    """Return how many workspace files are scanned to detect changed files.
+
+    Past this number, changed_files and deleted_files are not computed (they
+    come back as null) rather than slowing every command down. Overridable
+    via the MCP_SKILLS_SNAPSHOT_MAX_FILES environment variable.
+
+    Returns:
+        The maximum number of files per snapshot.
+
+    Raises:
+        ValueError: If the environment variable is not an integer.
+    """
+    raw_value = os.environ.get("MCP_SKILLS_SNAPSHOT_MAX_FILES")
+    return int(raw_value) if raw_value else _DEFAULT_SNAPSHOT_MAX_FILES
+
+
+def get_changed_files_max_entries() -> int:
+    """Return how many paths changed_files and deleted_files each list at most.
+
+    Further paths are summarized as a single '... and N more' entry.
+
+    Returns:
+        The maximum number of listed paths.
+    """
+    return _DEFAULT_CHANGED_FILES_MAX_ENTRIES
 
 
 def get_container_kill_timeout_seconds() -> int:
