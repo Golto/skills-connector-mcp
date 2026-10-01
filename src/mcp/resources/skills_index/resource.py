@@ -14,8 +14,9 @@ _INDEX_INTRODUCTION = (
 )
 
 _RESOURCES_HINT = (
-    "Skills marked [files] ship extra files (scripts, templates, references): "
-    "discover them with list_skill_files, then read them with read_skill_resource."
+    "Skills marked [files] ship extra files (scripts, templates, references) "
+    "under /skills/<skill_id>/: discover them with list_files, then read them "
+    "with read_file."
 )
 
 _EXECUTION_HINT = (

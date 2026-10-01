@@ -7,12 +7,16 @@ from src.storage.skill_store import SANDBOX_SKILLS_ROOT, resolve_skill_dir
 
 @dataclass(frozen=True)
 class BindMount:
-    """One host directory bound into the sandbox container.
+    """One host directory exposed inside the sandbox.
+
+    The same list of mounts is used to start the run_bash_command container
+    and to resolve the paths given to the file tools, so both always agree
+    on what a sandbox path points to.
 
     Attributes:
-        host_path: Absolute path of the directory on the host.
-        sandbox_path: Absolute mount point inside the container.
-        is_read_only: Whether the container may only read the directory.
+        host_path: Absolute, resolved path of the directory on the host.
+        sandbox_path: Absolute mount point inside the sandbox.
+        is_read_only: Whether the sandbox may only read the directory.
     """
 
     host_path: Path
@@ -21,7 +25,7 @@ class BindMount:
 
 
 def build_sandbox_mounts(ctx: AppRequestContext) -> list[BindMount]:
-    """List every bind mount of a run_bash_command container.
+    """List every directory exposed in the sandbox.
 
     - Each skill of the scope, read-only, at /skills/<skill_id>. Mounting
       them all (rather than one skill per call) is what lets the tool drop
@@ -45,7 +49,7 @@ def build_sandbox_mounts(ctx: AppRequestContext) -> list[BindMount]:
             continue
         mounts.append(
             BindMount(
-                host_path=resolve_skill_dir(entry.path),
+                host_path=resolve_skill_dir(entry.path).resolve(),
                 sandbox_path=SANDBOX_SKILLS_ROOT / skill_id,
                 is_read_only=True,
             )

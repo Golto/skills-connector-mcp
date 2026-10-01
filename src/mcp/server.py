@@ -5,18 +5,14 @@ from mcp.server.fastmcp import FastMCP
 from src.mcp.context import AppRequestContext
 from src.mcp.launch_options import LaunchOptions
 from src.mcp.resources.skills_index.resource import SKILLS_INDEX_URI, build_skills_index
-from src.mcp.tools.list_skill_files.models import ListSkillFilesRequest, ListSkillFilesResponse
-from src.mcp.tools.list_skill_files.tool import execute_list_skill_files
+from src.mcp.tools.list_files.models import DEFAULT_LIST_PATH, ListFilesRequest, ListFilesResponse
+from src.mcp.tools.list_files.tool import execute_list_files
 from src.mcp.tools.list_skills.models import ListSkillsResponse
 from src.mcp.tools.list_skills.tool import execute_list_skills
+from src.mcp.tools.read_file.models import ReadFileRequest, ReadFileResponse, StartLineParameter
+from src.mcp.tools.read_file.tool import execute_read_file
 from src.mcp.tools.read_skill.models import ReadSkillRequest, ReadSkillResponse
 from src.mcp.tools.read_skill.tool import execute_read_skill
-from src.mcp.tools.read_skill_resource.models import (
-    ReadSkillResourceRequest,
-    ReadSkillResourceResponse,
-    RelativePathParameter,
-)
-from src.mcp.tools.read_skill_resource.tool import execute_read_skill_resource
 from src.mcp.tools.run_bash_command.image_builder import ensure_runner_image_available
 from src.mcp.tools.run_bash_command.models import (
     DEFAULT_TIMEOUT_SECONDS,
@@ -33,7 +29,9 @@ from src.mcp.tools.search_skills.models import (
     SearchSkillsResponse,
 )
 from src.mcp.tools.search_skills.tool import execute_search_skills
-from src.mcp.tools.shared_models import SkillIdParameter
+from src.mcp.tools.shared_models import SandboxPathParameter, SkillIdParameter
+from src.mcp.tools.write_file.models import ContentParameter, WriteFileRequest, WriteFileResponse
+from src.mcp.tools.write_file.tool import execute_write_file
 from src.storage.bootstrap import ensure_data_directories_exist
 from src.storage.models import ServerScope
 from src.storage.profile_store import read_profile
@@ -42,7 +40,7 @@ from src.storage.registry_store import (
     sync_skills_to_registry,
     write_registry,
 )
-from src.storage.workspace import WorkspaceLayout, resolve_workspace_layout
+from src.storage.workspace import WorkspaceLayout, WorkspaceSource, resolve_workspace_layout
 
 
 def build_server(options: LaunchOptions) -> FastMCP:
@@ -58,7 +56,9 @@ def build_server(options: LaunchOptions) -> FastMCP:
 
     Tools are registered based on the profile's flags. Tools not permitted by
     the profile are not registered at all (absent from the MCP manifest rather
-    than refusing at call time).
+    than refusing at call time). write_file is also left out when the client
+    passed a paths.json: that client already runs a file writer on the same
+    directories, and two competing write tools confuse small models.
 
     Tool parameters are declared flat in each wrapper signature, not wrapped
     in a single request object: a nested {"request": {...}} argument is a
@@ -167,26 +167,25 @@ def build_server(options: LaunchOptions) -> FastMCP:
         return execute_read_skill(ReadSkillRequest(skill_id=skill_id), ctx)
 
     @mcp.tool()
-    def list_skill_files(skill_id: SkillIdParameter) -> ListSkillFilesResponse:
-        """Return the sorted file tree of a skill directory.
+    def list_files(path: SandboxPathParameter = DEFAULT_LIST_PATH) -> ListFilesResponse:
+        """List every file under a directory, recursively, as full paths.
 
-        Use this before read_skill_resource to discover valid relative paths,
-        since a skill's internal structure is not fixed.
+        Skills are under /skills/<skill_id>/, your working files under
+        /workspace/. The returned paths work as they are in the other tools.
         """
-        return execute_list_skill_files(ListSkillFilesRequest(skill_id=skill_id), ctx)
+        return execute_list_files(ListFilesRequest(path=path), ctx)
 
     @mcp.tool()
-    def read_skill_resource(
-        skill_id: SkillIdParameter,
-        relative_path: RelativePathParameter,
-    ) -> ReadSkillResourceResponse:
-        """Return the content of a specific file from a skill directory.
+    def read_file(
+        path: SandboxPathParameter,
+        start_line: StartLineParameter = 1,
+    ) -> ReadFileResponse:
+        """Read a text file, from a skill (/skills/...) or the workspace (/workspace/...).
 
-        Use list_skill_files first to discover valid relative paths.
-        SKILL.md must be read via read_skill, not this tool.
+        Long files are returned in parts: call again with next_start_line
+        to read the rest.
         """
-        request = ReadSkillResourceRequest(skill_id=skill_id, relative_path=relative_path)
-        return execute_read_skill_resource(request, ctx)
+        return execute_read_file(ReadFileRequest(path=path, start_line=start_line), ctx)
 
     # ----------------------------------------------------------------
     # Conditional tools: allow_generation
@@ -217,6 +216,17 @@ def build_server(options: LaunchOptions) -> FastMCP:
                 timeout_seconds=timeout_seconds,
             )
             return await execute_run_bash_command(request, ctx)
+
+        if workspace.source != WorkspaceSource.PATHS_DIR:
+
+            @mcp.tool()
+            def write_file(path: SandboxPathParameter, content: ContentParameter) -> WriteFileResponse:
+                """Write a text file under /workspace, replacing it if it exists.
+
+                Missing folders are created. Prefer this over shell commands
+                such as 'echo' or 'cat <<EOF' to write a file.
+                """
+                return execute_write_file(WriteFileRequest(path=path, content=content), ctx)
 
     return mcp
 

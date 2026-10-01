@@ -24,3 +24,11 @@ class ProfileCorruptedError(Exception):
 
 class WorkspaceConfigError(Exception):
     """Raised when the workspace launch options point to an invalid layout."""
+
+
+class SandboxPathError(Exception):
+    """Raised when a path given to a file tool does not designate a usable sandbox location."""
+
+
+class NonTextFileError(Exception):
+    """Raised when a file cannot be returned as text (binary, not UTF-8, or too large)."""

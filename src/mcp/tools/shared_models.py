@@ -22,6 +22,17 @@ SkillIdParameter = Annotated[
     ),
 ]
 
+SandboxPathParameter = Annotated[
+    str,
+    Field(
+        min_length=1,
+        description=(
+            "Sandbox path, such as '/skills/<skill_id>/scripts' or '/workspace/out.txt'. "
+            "A relative path is taken from /workspace."
+        ),
+    ),
+]
+
 
 # ----------------------------------------------------------------
 # Shared response models

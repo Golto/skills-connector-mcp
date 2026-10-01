@@ -7,12 +7,12 @@ from src.mcp.tools.run_bash_command.config import (
 )
 from src.mcp.tools.run_bash_command.docker_runner import run_docker_container
 from src.mcp.tools.run_bash_command.models import RunBashCommandRequest, RunBashCommandResponse
-from src.mcp.tools.run_bash_command.sandbox_mounts import build_sandbox_mounts
 from src.mcp.tools.run_bash_command.workspace_changes import (
     compute_workspace_changes,
     limit_path_list,
     take_workspace_snapshot,
 )
+from src.mcp.tools.sandbox_mounts import build_sandbox_mounts
 from src.storage.workspace import SANDBOX_WORKSPACE_ROOT
 
 

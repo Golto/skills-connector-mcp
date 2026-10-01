@@ -14,7 +14,7 @@ from src.mcp.tools.run_bash_command.config import (
     get_output_limit_bytes,
 )
 from src.mcp.tools.run_bash_command.output_capture import BoundedOutputBuffer, drain_stream
-from src.mcp.tools.run_bash_command.sandbox_mounts import BindMount
+from src.mcp.tools.sandbox_mounts import BindMount
 
 
 TIMEOUT_EXIT_CODE = 124
