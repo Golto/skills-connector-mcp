@@ -326,8 +326,9 @@ src/
 │   ├── skill_store.py              # lecture SKILL.md/ressources, garde-fou path traversal, création de skills
 │   └── scratch.py                   # résolution/génération des dossiers scratch pour run_bash_command
 └── mcp/
-    ├── context.py                   # AppRequestContext (scope + registry) injecté dans chaque outil
-    ├── server.py                    # resolve_profile_id() + build_server(): bootstrap, sync, enregistrement des outils
+    ├── context.py                   # AppRequestContext (scope + registry + workspace) injecté dans chaque outil
+    ├── launch_options.py            # resolve_launch_options() : profil, --paths-dir, --workspace
+    ├── server.py                    # build_server(): bootstrap, sync, enregistrement des outils
     ├── prompts/                     # vide pour le moment
     ├── resources/
     │   └── skills_index/
@@ -365,6 +366,6 @@ décodage FastMCP.
 `uv run mcp dev main.py` importe le module à la recherche d'une variable
 globale `FastMCP` : il n'appelle jamais de fonction `main()` et ne transmet
 aucun flag CLI au module. `main.py` expose donc directement
-`mcp = build_server(resolve_profile_id())` au niveau module, tandis que
-`server.py` contient toute la logique de construction (`resolve_profile_id`,
-`build_server`).
+`mcp = build_server(resolve_launch_options())` au niveau module, tandis que
+`launch_options.py` résout les options de lancement et `server.py` contient
+toute la logique de construction (`build_server`).

@@ -31,6 +31,15 @@ def get_registry_path() -> Path:
     return DATA_ROOT / "registry.json"
 
 
+def get_workspaces_dir() -> Path:
+    """Return the absolute path to the workspaces/ directory.
+
+    Holds one default workspace per profile, used when the client supplies
+    neither a paths.json nor a workspace directory at launch.
+    """
+    return DATA_ROOT / "workspaces"
+
+
 def get_skill_dir(skill_id: str, origin: SkillOrigin) -> Path:
     """Return the absolute path to a skill's root directory.
 

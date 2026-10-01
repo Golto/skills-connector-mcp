@@ -1,9 +1,7 @@
-import os
-from argparse import ArgumentParser
-
 from mcp.server.fastmcp import FastMCP
 
 from src.mcp.context import AppRequestContext
+from src.mcp.launch_options import LaunchOptions
 from src.mcp.resources.skills_index.resource import SKILLS_INDEX_URI, build_skills_index
 from src.mcp.tools.list_skill_files.models import ListSkillFilesRequest, ListSkillFilesResponse
 from src.mcp.tools.list_skill_files.tool import execute_list_skill_files
@@ -43,45 +41,18 @@ from src.storage.registry_store import (
     sync_skills_to_registry,
     write_registry,
 )
+from src.storage.workspace import resolve_workspace_layout
 
 
-_DEFAULT_PROFILE_ID = "default"
-
-
-def resolve_profile_id() -> str:
-    """Resolve the active profile id from CLI arguments or environment variable.
-
-    Precedence (highest to lowest):
-    1. --profile <id> CLI argument (parsed with parse_known_args to tolerate
-       flags injected by uv or mcp run).
-    2. MCP_SKILLS_PROFILE environment variable.
-    3. 'default'.
-
-    Returns:
-        The resolved profile identifier.
-    """
-    parser = ArgumentParser(add_help=False)
-    parser.add_argument("--profile", default=None)
-    args, _ = parser.parse_known_args()
-
-    if args.profile:
-        return args.profile
-
-    env_profile = os.environ.get("MCP_SKILLS_PROFILE", "").strip()
-    if env_profile:
-        return env_profile
-
-    return _DEFAULT_PROFILE_ID
-
-
-def build_server(profile_id: str) -> FastMCP:
-    """Bootstrap, sync, and configure a FastMCP server for the given profile.
+def build_server(options: LaunchOptions) -> FastMCP:
+    """Bootstrap, sync, and configure a FastMCP server for the given launch options.
 
     Runs these startup steps in order:
     1. Bootstrap: create any missing data directories and files.
     2. Registry sync: reconcile registry.json with base/ and generated/ on disk.
     3. Profile load: read the profile and build the in-memory ServerScope.
-    4. If allow_execution is set, make sure the runner image exists, building
+    4. Workspace: resolve the host directories that make up /workspace.
+    5. If allow_execution is set, make sure the runner image exists, building
        it from the bundled Dockerfile if it is missing locally.
 
     Tools are registered based on the profile's flags. Tools not permitted by
@@ -98,7 +69,7 @@ def build_server(profile_id: str) -> FastMCP:
     to be injected into an agent's system prompt by the MCP client.
 
     Args:
-        profile_id: The profile identifier to load.
+        options: Profile and workspace options resolved at launch.
 
     Returns:
         A configured FastMCP instance ready to serve.
@@ -107,6 +78,8 @@ def build_server(profile_id: str) -> FastMCP:
         ProfileNotFoundError: If the profile file does not exist.
         ProfileCorruptedError: If the profile file cannot be parsed.
         RegistryCorruptedError: If registry.json cannot be parsed.
+        WorkspaceConfigError: If the workspace options point to an invalid
+            paths.json or to a missing directory.
         DockerImageBuildError: If allow_execution is set and the runner image
             is missing and fails to build.
     """
@@ -121,18 +94,24 @@ def build_server(profile_id: str) -> FastMCP:
     if was_modified:
         write_registry(registry)
 
-    profile = read_profile(profile_id)
+    profile = read_profile(options.profile_id)
     scope = ServerScope(
-        profile_id=profile_id,
+        profile_id=options.profile_id,
         skill_ids=list(profile.skill_ids),
         allow_generation=profile.allow_generation,
         allow_execution=profile.allow_execution,
     )
 
+    workspace = resolve_workspace_layout(
+        profile_id=options.profile_id,
+        paths_dir=options.paths_dir,
+        workspace_dir=options.workspace_dir,
+    )
+
     if profile.allow_execution:
         ensure_runner_image_available()
 
-    ctx = AppRequestContext(scope=scope, registry=registry)
+    ctx = AppRequestContext(scope=scope, registry=registry, workspace=workspace)
     mcp = FastMCP("mcp-skills")
 
     # ----------------------------------------------------------------

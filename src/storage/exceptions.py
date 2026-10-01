@@ -20,3 +20,7 @@ class RegistryCorruptedError(Exception):
 
 class ProfileCorruptedError(Exception):
     """Raised when a profile file exists but cannot be parsed or validated."""
+
+
+class WorkspaceConfigError(Exception):
+    """Raised when the workspace launch options point to an invalid layout."""
