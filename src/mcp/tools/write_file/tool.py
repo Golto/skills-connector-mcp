@@ -4,6 +4,26 @@ from src.mcp.tools.sandbox_paths import resolve_sandbox_path
 from src.mcp.tools.write_file.models import WriteFileRequest, WriteFileResponse
 from src.storage.exceptions import SandboxPathError
 from src.storage.file_access import write_text_file_atomic
+from src.storage.models import ServerScope
+from src.storage.workspace import WorkspaceLayout, WorkspaceSource
+
+
+def is_write_file_available(scope: ServerScope, workspace: WorkspaceLayout) -> bool:
+    """Tell whether the write_file tool is registered for this server process.
+
+    It needs execution to be allowed (without it, the workspace has no use),
+    and is left out when the client passed a paths.json: that client already
+    runs a file writer on the same directories, and two competing write
+    tools confuse small models.
+
+    Args:
+        scope: The scope built from the loaded profile.
+        workspace: The resolved workspace layout.
+
+    Returns:
+        True if write_file is registered.
+    """
+    return scope.allow_execution and workspace.source != WorkspaceSource.PATHS_DIR
 
 
 def execute_write_file(request: WriteFileRequest, ctx: AppRequestContext) -> WriteFileResponse:

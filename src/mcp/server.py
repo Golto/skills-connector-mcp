@@ -31,7 +31,7 @@ from src.mcp.tools.search_skills.models import (
 from src.mcp.tools.search_skills.tool import execute_search_skills
 from src.mcp.tools.shared_models import SandboxPathParameter, SkillIdParameter
 from src.mcp.tools.write_file.models import ContentParameter, WriteFileRequest, WriteFileResponse
-from src.mcp.tools.write_file.tool import execute_write_file
+from src.mcp.tools.write_file.tool import execute_write_file, is_write_file_available
 from src.storage.bootstrap import ensure_data_directories_exist
 from src.storage.models import ServerScope
 from src.storage.profile_store import read_profile
@@ -40,7 +40,7 @@ from src.storage.registry_store import (
     sync_skills_to_registry,
     write_registry,
 )
-from src.storage.workspace import WorkspaceLayout, WorkspaceSource, resolve_workspace_layout
+from src.storage.workspace import WorkspaceLayout, resolve_workspace_layout
 
 
 def build_server(options: LaunchOptions) -> FastMCP:
@@ -56,9 +56,8 @@ def build_server(options: LaunchOptions) -> FastMCP:
 
     Tools are registered based on the profile's flags. Tools not permitted by
     the profile are not registered at all (absent from the MCP manifest rather
-    than refusing at call time). write_file is also left out when the client
-    passed a paths.json: that client already runs a file writer on the same
-    directories, and two competing write tools confuse small models.
+    than refusing at call time). write_file also depends on the workspace
+    source, see is_write_file_available.
 
     Tool parameters are declared flat in each wrapper signature, not wrapped
     in a single request object: a nested {"request": {...}} argument is a
@@ -217,7 +216,7 @@ def build_server(options: LaunchOptions) -> FastMCP:
             )
             return await execute_run_bash_command(request, ctx)
 
-        if workspace.source != WorkspaceSource.PATHS_DIR:
+        if is_write_file_available(scope, workspace):
 
             @mcp.tool()
             def write_file(path: SandboxPathParameter, content: ContentParameter) -> WriteFileResponse:

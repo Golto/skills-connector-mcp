@@ -62,8 +62,8 @@ projet :
 ├── profiles/
 │   ├── <profile_id>.json
 │   └── default.json           # créé automatiquement si absent
-└── scratch/
-    └── <scratch_id>/          # workspaces de run_bash_command
+└── workspaces/
+    └── <profile_id>/          # workspace par défaut d'un profil (voir Workspace)
 ```
 
 ### Bootstrap
@@ -146,6 +146,37 @@ explicite est écrite sur stderr avant d'être relevée (l'inspecteur MCP
 avalant silencieusement les exceptions d'import, `main.py` intercepte les
 erreurs de démarrage pour garantir leur visibilité dans le terminal).
 
+### Workspace
+
+Le workspace est l'ensemble des dossiers de l'hôte visibles sous
+`/workspace` dans la sandbox et dans les outils de fichiers. Il est fixé au
+lancement, comme le profil, selon cet ordre de précédence (pour chaque
+option, l'argument CLI l'emporte sur sa variable d'environnement) :
+
+1. `--paths-dir <dossier>` / `MCP_SKILLS_PATHS_DIR` : un dossier contenant
+   un `paths.json` qui associe des noms à des dossiers de l'hôte. Chaque
+   entrée est montée sous `/workspace/<nom>`. C'est le même flag, avec le
+   même sens, que pour `mcp-project-navigator` et `mcp-project-writer` : un
+   client comme agent-worker leur passe la même valeur, et le fichier vu
+   comme projet `memory`, chemin `notes.md` par ces serveurs est
+   `/workspace/memory/notes.md` dans la sandbox. Les chemins relatifs du
+   `paths.json` sont résolus depuis le dossier qui le contient.
+2. `--workspace <dossier>` / `MCP_SKILLS_WORKSPACE` : un seul dossier, monté
+   comme `/workspace`.
+3. Sinon, `~/.config/scripts/mcp-skills/workspaces/<profile_id>/`, créé à
+   la demande.
+
+Les dossiers fournis explicitement ne sont jamais créés : un dossier absent
+(ou un `paths.json` invalide) interrompt le démarrage avec une erreur
+explicite (`WorkspaceConfigError`).
+
+```json
+{
+  "memory": "/chemin/vers/agents/default/workplace/memory",
+  "artefacts": "/chemin/vers/agents/default/workplace/artefacts"
+}
+```
+
 ### Configuration Claude Desktop
 
 ```json
@@ -187,14 +218,19 @@ l'outil.
 | `list_skills` | Liste les skills du scope courant (id, description, tags, origin, has_resources) |
 | `search_skills` | Recherche par mots-clés parmi id/description/triggers/tags, sémantique ET, `limit` optionnel |
 | `read_skill` | Retourne le contenu de `SKILL.md` |
-| `list_skill_files` | Retourne l'arborescence complète de la skill (`manifest.json` exclu) |
-| `read_skill_resource` | Retourne le contenu d'un fichier précis, identifié par chemin relatif |
+| `list_files` | Liste récursivement un dossier de la sandbox (`/` par défaut), en chemins absolus |
+| `read_file` | Lit un fichier texte de la sandbox par tranches de lignes (`start_line`, `next_start_line`) |
 
 ### Chargés si `allow_execution = true`
 
 | Outil | Description |
 |---|---|
-| `run_bash_command` | Exécute une commande shell dans un conteneur Docker jetable, scopé à une skill |
+| `run_bash_command` | Exécute une commande shell dans un conteneur Docker jetable, hors réseau |
+| `write_file` | Écrit un fichier texte sous `/workspace`. **Absent avec `--paths-dir`** : le client dispose alors déjà d'un writer sur les mêmes dossiers, et deux outils d'écriture concurrents égarent les petits modèles |
+
+Tous les outils de fichiers partagent le vocabulaire de chemins de la
+sandbox (voir [Exécution sandboxée](#exécution-sandboxée)) : un chemin
+renvoyé par l'un s'utilise tel quel dans les autres et dans une commande.
 
 ### Chargés si `allow_generation = true`
 
@@ -216,9 +252,13 @@ devoir penser à appeler `list_skills` : il ne lit le `SKILL.md` complet via
 `read_skill` que lorsqu'une tâche s'y rapporte (divulgation progressive).
 
 Les consignes ne mentionnent que les outils réellement enregistrés pour le
-profil actif : la phrase sur `run_bash_command` n'apparaît que si
-`allow_execution` est actif, celle sur `list_skill_files` /
-`read_skill_resource` que si au moins une skill a des fichiers annexes.
+profil actif. La phrase sur `list_files` / `read_file` n'apparaît que si au
+moins une skill a des fichiers annexes. Si `allow_execution` est actif, une
+section `## Sandbox` décrit le layout réel de ce process : `/skills`, puis
+soit `/workspace` seul, soit chaque dossier nommé du `paths.json` relié à
+son nom de projet, avec la consigne d'utiliser `write_file` quand il est
+enregistré. C'est le seul endroit où le layout est détaillé, plutôt que dans
+chaque réponse d'outil.
 
 ```markdown
 # Available skills
@@ -227,6 +267,14 @@ Skills are packaged instructions for specific kinds of tasks. [...]
 
 - golto-python-style: Conventions de style Python. Use when: écrire du code Python.
 - fiche-recap-math: Génère une fiche récap de maths. [files]
+
+## Sandbox
+
+run_bash_command runs shell commands in a fresh container, without network: [...]
+- /skills/<skill_id>/: skill files, read-only. [...]
+- /workspace/memory/: read-write, kept between calls. Same files as the project 'memory' [...]
+- /workspace/artefacts/: [...]
+/workspace/ is the working directory but is itself read-only: [...]
 ```
 
 ## Structure d'une skill
@@ -235,9 +283,9 @@ En dehors de `SKILL.md` (toujours à la racine) et de `manifest.json`
 (uniquement pour `generated/`), aucune structure interne n'est imposée :
 une skill peut contenir un `reference.md`, un dossier `scripts/`, un dossier
 `templates/`, ou toute autre organisation. Conséquence directe : aucun
-outil ne présuppose de sous-dossier conventionnel, d'où la présence de
-`list_skill_files` pour découvrir l'arborescence réelle avant de cibler une
-lecture avec `read_skill_resource`.
+outil ne présuppose de sous-dossier conventionnel, d'où `list_files` pour
+découvrir l'arborescence réelle (`/skills/<skill_id>/`) avant de cibler une
+lecture avec `read_file`.
 
 ### `SKILL.md`
 
@@ -269,55 +317,94 @@ tags:
 
 ## Exécution sandboxée
 
-`run_bash_command` exécute une commande dans un conteneur Docker jetable :
+### Vocabulaire de chemins
+
+L'agent ne manipule jamais de chemin de l'hôte. Tous les outils (fichiers
+et commandes) parlent le même langage :
+
+| Chemin | Contenu | Accès |
+|---|---|---|
+| `/skills/<skill_id>/` | chaque skill du scope | lecture seule |
+| `/workspace/` ou `/workspace/<nom>/` | le workspace (voir [Workspace](#workspace)) | lecture/écriture |
+
+Un chemin relatif part de `/workspace`. `/`, `/skills` et un `/workspace`
+découpé en dossiers nommés sont des répertoires virtuels : on peut les
+lister, pas y écrire. La résolution vers l'hôte (`sandbox_paths.py`) passe
+par la même liste de montages que celle qui démarre le conteneur
+(`sandbox_mounts.py`), et refuse tout chemin, lien symbolique compris, qui
+sortirait de son montage.
+
+Comme le workspace est fait de dossiers de l'hôte, ce qu'une commande y
+écrit survit au conteneur, sans identifiant à transporter d'un appel à
+l'autre, et reste visible des autres outils travaillant sur ces dossiers.
+
+### `run_bash_command`
+
+`run_bash_command(command, timeout_seconds=30)` exécute `bash -c <command>`
+dans un conteneur Docker jetable (`docker run --rm`), depuis `/workspace` :
 
 - **Image** : image unique et fixe (`mcp-skills-runner:latest` par défaut),
   jamais choisie par l'agent. Construite automatiquement au démarrage du
   serveur si le profil actif a `allow_execution = true` et que l'image
-  n'existe pas encore localement (`docker image inspect` puis `docker build`
-  si absente). Dockerfile bundlé sous `docker/mcp-skills-runner/Dockerfile`
-  (base `python:3.13-slim` + `git`, `curl`, `jq`, `requests`, `pyyaml`).
-- **Montages** :
-  - dossier racine de la skill monté en **lecture seule** sous `/skill` ;
-  - dossier scratch dédié monté en **lecture/écriture** sous `/workspace`,
-    qui est aussi le répertoire de travail du conteneur.
-- **Réseau** : désactivé (`--network none`), non paramétrable.
-- **Limites** : mémoire et CPU fixées au niveau serveur (variables
-  d'environnement `MCP_SKILLS_DOCKER_MEMORY` / `MCP_SKILLS_DOCKER_CPUS`,
-  non exposées à l'agent), timeout configurable par appel
-  (`timeout_seconds`, défaut 30s). Un dépassement de timeout tue le
-  conteneur (`docker kill`) et retourne le code de sortie `124`.
+  n'existe pas encore localement ou que le Dockerfile a changé. Dockerfile
+  bundlé sous `docker/mcp-skills-runner/Dockerfile` (base
+  `python:3.13-slim` + `git`, `curl`, `jq`, `requests`, `pyyaml`, `sympy`).
+- **Montages** : toutes les skills du scope sous `/skills` (lecture seule),
+  le workspace sous `/workspace` (lecture/écriture), via `--mount` (qui
+  échoue si la source manque, là où `-v` la créerait en root).
+- **Isolation** : pas de réseau (`--network none`), utilisateur de l'hôte
+  (`--user uid:gid`, les fichiers écrits appartiennent à l'utilisateur qui
+  lance le serveur), système de
+  fichiers racine en lecture seule avec un `/tmp` en mémoire, aucune
+  capability, `no-new-privileges`. `HOME=/tmp`.
+- **Limites** (variables d'environnement, jamais exposées à l'agent) :
 
-### Réutilisation de workspace (`scratch_id`)
+  | Variable | Défaut | Rôle |
+  |---|---|---|
+  | `MCP_SKILLS_DOCKER_IMAGE` | `mcp-skills-runner:latest` | image |
+  | `MCP_SKILLS_DOCKER_MEMORY` | `512m` | mémoire, et mémoire + swap |
+  | `MCP_SKILLS_DOCKER_CPUS` | `1.0` | CPU |
+  | `MCP_SKILLS_DOCKER_PIDS` | `256` | nombre de processus |
+  | `MCP_SKILLS_DOCKER_TMP_SIZE` | `256m` | taille de `/tmp` |
+  | `MCP_SKILLS_OUTPUT_LIMIT_BYTES` | `8000` | octets gardés par flux (stdout, stderr) |
+  | `MCP_SKILLS_SNAPSHOT_MAX_FILES` | `20000` | fichiers suivis pour `changed_files` |
 
-Chaque appel accepte un `scratch_id` optionnel. Omis, un nouvel identifiant
-est généré et un dossier scratch vide est créé. Fourni (récupéré depuis la
-réponse d'un appel précédent), le même dossier `/workspace` est réutilisé,
-ce qui permet à l'agent d'itérer sur les mêmes fichiers à travers plusieurs
-appels sans repartir de zéro. L'identifiant est validé par expression
-régulière (`[a-zA-Z0-9_-]+`) pour écarter toute tentative de traversal.
+- **Timeout** : `timeout_seconds` (défaut 30, maximum 600). Un dépassement
+  tue le conteneur (`docker kill`) et retourne le code `124` ; les fichiers
+  déjà écrits sont conservés.
+- **Non bloquant** : la commande tourne dans un sous-processus asynchrone,
+  le serveur continue de répondre pendant ce temps.
 
-```json
-{
-  "skill_id": "git-workflow",
-  "command": "git clone https://example.com/repo.git .",
-  "scratch_id": null
-}
-```
-
-La réponse retourne toujours un `scratch_id`, même lorsqu'il a été généré
-automatiquement, à repasser dans un appel suivant :
+La réponse :
 
 ```json
 {
+  "exit_code": 0,
   "stdout": "...",
   "stderr": "",
-  "exit_code": 0,
-  "output_files": ["README.md"],
-  "workspace_path": "/home/.../scratch/a1b2c3d4",
-  "scratch_id": "a1b2c3d4"
+  "is_output_truncated": false,
+  "changed_files": ["/workspace/artefacts/plot.png"],
+  "deleted_files": []
 }
 ```
+
+- Une sortie trop longue garde son début et sa fin, avec un marqueur
+  `[... N bytes truncated ...]` au milieu. Elle est lue au fil de l'eau :
+  la mémoire de l'hôte reste bornée quoi que la commande affiche.
+- `changed_files` / `deleted_files` comparent taille et mtime de chaque
+  fichier du workspace avant et après la commande, et listent au plus 50
+  chemins (puis `"... and N more"`). Au-delà de
+  `MCP_SKILLS_SNAPSHOT_MAX_FILES` fichiers, ils valent `null`. Une écriture
+  faite par un autre processus pendant la commande y apparaît aussi.
+
+### Convention pour les scripts de skills
+
+Un script de skill est lancé par son chemin complet
+(`python /skills/<skill_id>/scripts/cli.py ...`), sans `cd` dans son
+dossier, et doit se contenter des dépendances de l'image (pas de réseau,
+donc pas de `pip install`). Il lit et écrit dans `/workspace` ; ses imports
+internes doivent être relatifs à son propre fichier, pas au dossier
+courant.
 
 ## Architecture du code
 
@@ -331,8 +418,9 @@ src/
 │   ├── bootstrap.py                # création idempotente de la structure de données
 │   ├── registry_store.py           # lecture/écriture atomique + resynchronisation du registry
 │   ├── profile_store.py            # lecture/écriture des profils
-│   ├── skill_store.py              # lecture SKILL.md/ressources, garde-fou path traversal, création de skills
-│   └── scratch.py                   # résolution/génération des dossiers scratch pour run_bash_command
+│   ├── skill_store.py              # lecture SKILL.md, garde-fou path traversal, création de skills
+│   ├── workspace.py                # résolution du workspace : paths.json, dossier unique ou défaut
+│   └── file_access.py              # listing, lecture par lignes, écriture atomique sur l'hôte
 └── mcp/
     ├── context.py                   # AppRequestContext (scope + registry + workspace) injecté dans chaque outil
     ├── launch_options.py            # resolve_launch_options() : profil, --paths-dir, --workspace
@@ -340,20 +428,25 @@ src/
     ├── prompts/                     # vide pour le moment
     ├── resources/
     │   └── skills_index/
-    │       └── resource.py          # build_skills_index() : index Markdown du scope pour le prompt système
+    │       └── resource.py          # build_skills_index() : index Markdown + section Sandbox
     └── tools/
-        ├── shared_models.py         # SkillSummary + SkillIdParameter partagés entre outils
-        ├── scope_guard.py           # require_skill_in_scope() partagé entre les outils prenant un skill_id
+        ├── shared_models.py         # SkillSummary, SkillIdParameter, SandboxPathParameter
+        ├── scope_guard.py           # require_skill_in_scope() pour read_skill
+        ├── sandbox_mounts.py        # build_sandbox_mounts() : /skills + /workspace, source unique des montages
+        ├── sandbox_paths.py         # resolve_sandbox_path() : chemin sandbox vers chemin hôte
         ├── list_skills/
         ├── search_skills/
         ├── read_skill/
-        ├── list_skill_files/
-        ├── read_skill_resource/
+        ├── list_files/
+        ├── read_file/
+        ├── write_file/              # + is_write_file_available()
         └── run_bash_command/
             ├── models.py            # RunBashCommandRequest/Response
-            ├── tool.py              # orchestration : scope guard, résolution scratch, appel Docker
+            ├── tool.py              # orchestration : relevés du workspace, exécution, réponse
             ├── config.py            # image/limites/timeouts, surchargeables par variables d'environnement
-            ├── docker_runner.py     # subprocess docker run, gestion timeout + kill
+            ├── docker_runner.py     # docker run asynchrone durci, timeout + kill
+            ├── output_capture.py    # BoundedOutputBuffer : début + fin de chaque flux
+            ├── workspace_changes.py # relevés taille/mtime, changed_files / deleted_files
             └── image_builder.py     # ensure_runner_image_available() : inspect puis build si absente
 ```
 

@@ -39,7 +39,7 @@ class SkillEntry(BaseModel):
         hash: SHA256 hash over SKILL.md content and resource files,
             used to detect manual modifications on disk.
         has_resources: True if the skill contains files beyond SKILL.md
-            and manifest.json. Avoids unnecessary list_skill_files calls.
+            and manifest.json. Avoids unnecessary list_files calls.
         composed_from: Ids of skills this one was derived from.
             Only set for generated skills.
     """

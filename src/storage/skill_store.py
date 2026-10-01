@@ -5,7 +5,6 @@ from pathlib import Path, PurePosixPath
 from src.storage.exceptions import PathEscapeError
 from src.storage.models import Manifest, SkillOrigin
 from src.storage.paths import get_data_root, get_skill_dir
-from src.storage.tree import render_file_tree
 
 
 # NOTE: every skill in scope is mounted read-only at SANDBOX_SKILLS_ROOT /
@@ -43,41 +42,6 @@ def read_skill_content(skill_dir: Path) -> str:
     return skill_md_path.read_text(encoding="utf-8")
 
 
-def list_skill_files(skill_dir: Path) -> list[str]:
-    """List all files in a skill directory, excluding manifest.json.
-
-    SKILL.md is included. Files are returned as relative paths from the skill
-    root, sorted for deterministic output.
-
-    Args:
-        skill_dir: Absolute path to the skill's root directory.
-
-    Returns:
-        A sorted list of relative file paths within the skill directory.
-    """
-    return sorted(
-        str(path.relative_to(skill_dir))
-        for path in skill_dir.rglob("*")
-        if path.is_file() and path.name != "manifest.json"
-    )
-
-
-def build_skill_tree(skill_dir: Path) -> str:
-    """Render a skill directory as an ASCII tree, rooted at '/skill'.
-
-    Uses '/skill' as the label rather than the skill_dir host path, since
-    this tree is meant to help an agent orient itself inside the sandbox
-    mount created by run_bash_command, not on the host filesystem.
-
-    Args:
-        skill_dir: Absolute path to the skill's root directory.
-
-    Returns:
-        A multi-line ASCII tree string, manifest.json excluded.
-    """
-    return render_file_tree("/skill", list_skill_files(skill_dir))
-
-
 def resolve_resource_path(skill_dir: Path, relative_path: str) -> Path:
     """Resolve a resource path and verify it stays within the skill directory.
 
@@ -102,37 +66,6 @@ def resolve_resource_path(skill_dir: Path, relative_path: str) -> Path:
             f"Path '{relative_path}' resolves outside the skill directory."
         )
     return resolved
-
-
-def read_skill_resource(skill_dir: Path, relative_path: str) -> str:
-    """Read a resource file from a skill directory.
-
-    SKILL.md must be read through read_skill_content, not this function.
-    The path must not escape the skill directory.
-
-    Args:
-        skill_dir: Absolute path to the skill's root directory.
-        relative_path: Path to the resource, relative to the skill root.
-
-    Returns:
-        The text content of the resource file.
-
-    Raises:
-        ValueError: If relative_path refers to SKILL.md.
-        PathEscapeError: If the path resolves outside the skill directory.
-        FileNotFoundError: If the resolved resource does not exist.
-    """
-    if Path(relative_path).name == "SKILL.md":
-        raise ValueError(
-            "SKILL.md cannot be read via read_skill_resource. Use read_skill_content."
-        )
-
-    resolved = resolve_resource_path(skill_dir, relative_path)
-
-    if not resolved.exists():
-        raise FileNotFoundError(f"Resource not found: {resolved}")
-
-    return resolved.read_text(encoding="utf-8")
 
 
 def write_generated_skill(
